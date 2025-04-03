@@ -1,10 +1,17 @@
 [project]
 name = "tokens-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP server for token-metrics"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=0.4.1",
+    "dotenv>=0.9.9",
+    "mcp[cli]>=1.6.0",
+    "pycomfort>=0.0.18",
     "tmai-api>=0.4.0",
+]
+
+[dependency-groups]
+dev = [
+    "jupyterlab>=4.3.6",
 ]
