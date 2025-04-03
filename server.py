@@ -11,7 +11,7 @@ load_dotenv()
 mcp = FastMCP("Token Metrics Crypto Analytics")
 
 # Configure official SDK client
-client = TokenMetricsClient(api_key=os.getenv("TM_API_KEY"))
+client = TokenMetricsClient(api_key=os.getenv("TOKEN_METRICS_API_KEY"))
 
 ### Resources
 @mcp.resource("coins/list")
@@ -93,9 +93,9 @@ def market_report() -> str:
 - Recommended portfolio adjustments"""
 
 if __name__ == "__main__":
-    if not os.getenv("TM_API_KEY"):
-        print("Error: TM_API_KEY missing in .env file")
-        print("Create .env with: TM_API_KEY=your_api_key_here")
+    if not os.getenv("TOKEN_METRICS_API_KEY"):
+        print("Error: TOKEN_METRICS_API_KEY missing in .env file")
+        print("Create .env with: TOKEN_METRICS_API_KEY=your_api_key_here")
         exit(1)
         
     mcp.run()
