@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "cross-spawn": "^7.0.6",
+    "which": "^5.0.0"
+  }
+}
