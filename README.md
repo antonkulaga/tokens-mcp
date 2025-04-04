@@ -41,20 +41,25 @@ python-sdk is a trash-quality library but because it is written by Anthropic eve
 
 ## Running MCP server
 
-starting the server
+Inside uv environment:
+
+start the server
 ```bash
 mcp run server.py
 ```
 
-
+start inspection
 ```bash
 mcp dev server.py
 ```
 
-Troubleshooting: in some cases it complains about which and cross-spawn, for this use-case
+Open http://127.0.0.1:6274 to inspect MCP server
+
+Troubleshooting
+===============
+
+In some cases it complains about which and cross-spawn, for this use-case
 ```
 npx clear-npx-cache
 npm install cross-spawn which --save-dev
 ```
-
-Open http://127.0.0.1:6274 to inspect MCP server

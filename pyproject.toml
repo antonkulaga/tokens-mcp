@@ -4,21 +4,25 @@ version = "0.1.0"
 description = "MCP server for token-metrics"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "dotenv>=0.9.9",
-    "mcp[cli]>=1.6.0",
-    "pycomfort>=0.0.18",
-    "tmai-api>=0.4.0",
-]
-
-[dependency-groups]
-dev = [
-    "jupyterlab>=4.3.6",
-]
 authors = [
     {name = "Anton Kulaga", email = "antonkulaga@gmail.com"},
     {name = "Livia Zaharia", email = "liviazaharia2020@gmail.com"}
 ]
 maintainers = [
     {name = "Anton Kulaga", email = "antonkulaga@gmail.com"}
+]
+license = "Apache-2.0"
+dependencies = [
+    "dotenv>=0.9.9",
+    "mcp[cli]>=1.6.0",
+    "pycomfort>=0.0.18",
+    "tmai-api>=0.4.0",
+    "pydantic>=2.11.2",
+    "tmai-api>=0.4.0",
+    "vectorbt>=0.27.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyterlab>=4.3.6",
 ]

@@ -8,6 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 import pathlib
 from models import TokenInfo, ExchangeInfo, CategoryInfo
 from tqdm.auto import tqdm
+from tmai_api import TokenMetricsClient
 
 # Base URL for Token Metrics API
 BASE_URL = "https://api.tokenmetrics.com/v2"
@@ -434,22 +435,86 @@ async def fetch_ai_report_tokens_list(use_cache: bool = True) -> List[Dict[str, 
 
 async def get_coin_data(symbol: str, use_cache: bool = True) -> Optional[Dict[str, Any]]:
     """
-    Get detailed information for a specific coin by symbol
-    Uses the coins endpoint and filters by symbol
+    Get detailed information for a specific coin by symbol.
+    Uses the cached /v2/coins list by default.
     
     Args:
         symbol: Coin symbol (e.g., BTC, ETH)
-        use_cache: Whether to use cached data if available
+        use_cache: Whether to use cached coins list data if available
         
     Returns:
-        Detailed coin information if found
+        Detailed coin information if found, None otherwise.
     """
-    coins = await fetch_coins_list(use_cache=use_cache)
-    for coin in coins:
-        if coin.get("TOKEN_SYMBOL") == symbol:
-            return coin
-    return None
+    print(f"Attempting to get token data for {symbol} from coins list (use_cache={use_cache})")
+    try:
+        # This uses the potentially broken /v2/coins endpoint via fetch_coins_list
+        coins = await fetch_coins_list(use_cache=use_cache)
+        if not coins:
+            print("Warning: fetch_coins_list returned empty result.")
+            return None
+            
+        for coin in coins:
+            # Case-insensitive comparison for robustness
+            if coin.get("TOKEN_SYMBOL", "").upper() == symbol.upper():
+                print(f"Found {symbol} in coins list.")
+                return coin
+                
+        print(f"Symbol {symbol} not found in coins list.")
+        return None
+    except Exception as e:
+        print(f"Error fetching or processing coins list for {symbol}: {e}")
+        # This might happen if the /v2/coins endpoint call inside fetch_coins_list fails
+        return None
 
+async def get_token_data_via_tokens_endpoint(symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    Get detailed information for a specific token using the premium /v2/tokens endpoint.
+    This serves as a fallback if the /v2/coins endpoint is unavailable.
+    Requires API key.
+    
+    Args:
+        symbol: Token symbol (e.g., BTC, ETH)
+        
+    Returns:
+        Detailed token information if found, None otherwise.
+    """
+    print(f"Falling back to fetching token data for {symbol} using /v2/tokens endpoint.")
+    
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        print("Error: TOKEN_METRICS_API_KEY not set. Cannot use /v2/tokens endpoint.")
+        return None
+
+    try:
+        client = TokenMetricsClient(api_key=api_key)
+        # Use await for the async call
+        response = await asyncio.to_thread(client.tokens.get, symbol=symbol)
+        
+        if response and response.get("data"):
+            token_data_list = response["data"]
+            if token_data_list:
+                token_data = token_data_list[0] # Assume first is correct
+                if token_data.get("TOKEN_SYMBOL", "").upper() == symbol.upper():
+                    print(f"Successfully fetched data for {symbol} via /v2/tokens")
+                    return token_data
+                else:
+                    print(f"Warning: /v2/tokens fetched data symbol '{token_data.get('TOKEN_SYMBOL')}' doesn't match requested '{symbol}'")
+                    # Decide if mismatch is acceptable or return None
+                    # Returning None for safety for now
+                    return None 
+            else:
+                print(f"No data list found for symbol {symbol} in the /v2/tokens response.")
+                return None
+        else:
+            print(f"Failed to fetch or no data returned for symbol {symbol} from /v2/tokens.")
+            return None
+            
+    except Exception as e:
+        # Log the full exception for debugging
+        import traceback
+        print(f"Error fetching token data for {symbol} via /v2/tokens: {e}")
+        traceback.print_exc() # Print detailed traceback
+        return None
 
 async def cache_lists(force_refresh: bool = False) -> None:
     """
