@@ -80,7 +80,7 @@ This project works best with IDEs that support the Model Context Protocol (MCP).
 2. Ensure your configuration files (.env and mcp_server_config.json) are properly set up
 3. The MCP server will be automatically detected, enabling AI assistants to analyze crypto data and implement trading strategies
 
-![Cursor IDE integration with TokenMetrics MCP server](images/cursor_examples.png)
+![Cursor IDE integration with TokenMetrics MCP server](images/cursor_example.png)
 
 ## Project Structure
 
