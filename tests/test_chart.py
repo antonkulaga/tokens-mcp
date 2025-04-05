@@ -7,8 +7,9 @@ from the Token Metrics API server.
 import asyncio
 import os
 from dotenv import load_dotenv
-from eliot import start_action, to_file, Message
+from eliot import start_action
 from tokens_mcp.server import generate_ma_chart_as_file
+from pycomfort.logging import to_nice_stdout
 
 # Load environment variables (needed for Token Metrics API key)
 load_dotenv(override=True)
@@ -21,7 +22,7 @@ async def test_chart_generation():
         # Check if API key is set
         api_key = os.getenv("TOKEN_METRICS_API_KEY")
         if not api_key:
-            Message.log(message_type="api_key_missing", description="TOKEN_METRICS_API_KEY not set in environment")
+            action.log(message_type="api_key_missing", description="TOKEN_METRICS_API_KEY not set in environment")
             action.add_success_fields(status="failed", reason="missing_api_key")
             return
         
@@ -74,4 +75,5 @@ async def test_chart_generation():
 
 if __name__ == "__main__":
     # Run the test function
+    to_nice_stdout()
     asyncio.run(test_chart_generation()) 

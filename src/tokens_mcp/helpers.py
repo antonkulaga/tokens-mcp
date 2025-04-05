@@ -3,10 +3,9 @@ import os
 import asyncio
 import pandas as pd
 import json
-from typing import Dict, Any, Optional, List, Union, Callable
+from typing import Dict, Any, Optional, List, Callable
 from tenacity import retry, stop_after_attempt, wait_exponential
 import pathlib
-from tokens_mcp.models import TokenInfo, ExchangeInfo, CategoryInfo
 from tqdm.auto import tqdm
 from tmai_api import TokenMetricsClient
 

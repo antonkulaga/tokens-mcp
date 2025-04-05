@@ -49,24 +49,20 @@ cp .env.example .env
 ### Running the Server
 
 ```bash
-./launch_server.py
+uv run mcp run run.py
 ```
 
 You can inspect the server by running
 ```bash
-uv run mcp dev
+uv run mcp dev run.py
 ```
+
+
+Note: if uv environment is activated you can omit uv run part
+
 
 ### Running Tests
 
 ```bash
-pytest -v tests/
-```
-
-## Development
-
-To set up a development environment:
-
-```bash
-pip install -e ".[dev]"
+pytest -v
 ```
