@@ -14,6 +14,10 @@ MCP (Model Control Protocol) provides a standardized interface for AI systems to
 
 Whether for algorithmic trading bots or market research, this server simplifies working with crypto data and strategy development.
 
+### Demo Video
+
+[![Hackathon Demo Video](https://img.youtube.com/vi/YrP_cEG037Y/0.jpg)](https://www.youtube.com/watch?v=YrP_cEG037Y)
+
 ## Getting Started
 
 ### Installation
