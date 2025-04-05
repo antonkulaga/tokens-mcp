@@ -1,0 +1,1308 @@
+from mcp.server.fastmcp import FastMCP
+from tmai_api import TokenMetricsClient
+from dotenv import load_dotenv
+import os
+import asyncio
+from typing import List, Dict, Any, Optional, Union, Tuple
+import pandas as pd
+from datetime import datetime, timedelta
+import json
+import vectorbt as vbt
+from pydantic import BaseModel, Field
+import matplotlib.pyplot as plt
+import base64
+import io
+from mcp.types import ImageContent
+import numpy as np
+
+
+# Import from our modules
+from tokens_mcp.models import TokenInfo, ExchangeInfo, CategoryInfo, EmaResponse, MACrossoverResponse, StrategyStats
+from tokens_mcp.helpers import (
+    fetch_coins_list, 
+    fetch_categories_list, 
+    fetch_exchanges_list,
+    fetch_blockchains_list,
+    fetch_technical_indicators_list,
+    fetch_ai_report_tokens_list,
+    get_coin_data,
+    cache_lists,
+    invalidate_cache as helper_invalidate_cache,
+    is_cache_valid,
+    get_token_data_via_tokens_endpoint
+)
+
+# Load environment variables from .env file
+load_dotenv(override=True)
+
+# Create an MCP server
+mcp = FastMCP("TmaiAPI")
+
+# Helper endpoints (no API key needed)
+# Keep the original functions as-is
+
+@mcp.tool()
+async def get_coins_list(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """
+    Get the list of all token IDs, names, and symbols from Token Metrics.
+    Endpoint: /v2/coins
+    
+    Args:
+        use_cache: Whether to use cached data if available
+    
+    Returns:
+        List of coin information
+    """
+    return await fetch_coins_list(use_cache=use_cache)
+
+
+@mcp.tool()
+async def get_categories_list(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """
+    Get the list of all token categories available in Token Metrics.
+    Endpoint: /v2/categories
+    
+    Args:
+        use_cache: Whether to use cached data if available
+    
+    Returns:
+        List of category information
+    """
+    return await fetch_categories_list(use_cache=use_cache)
+
+
+@mcp.tool()
+async def get_exchanges_list(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """
+    Get the list of all exchanges tracked by Token Metrics.
+    Endpoint: /v2/exchanges
+    
+    Args:
+        use_cache: Whether to use cached data if available
+    
+    Returns:
+        List of exchange information
+    """
+    return await fetch_exchanges_list(use_cache=use_cache)
+
+
+@mcp.tool()
+async def get_blockchains_list(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """
+    Get the list of all blockchains supported by Token Metrics.
+    Endpoint: /v2/blockchains
+    
+    Args:
+        use_cache: Whether to use cached data if available
+    
+    Returns:
+        List of blockchain details
+    """
+    return await fetch_blockchains_list(use_cache=use_cache)
+
+
+@mcp.tool()
+async def get_technical_indicators_list(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """
+    Get the list of available technical indicators.
+    Endpoint: /v2/technical-indicators
+    
+    Args:
+        use_cache: Whether to use cached data if available
+    
+    Returns:
+        List of technical indicator information
+    """
+    return await fetch_technical_indicators_list(use_cache=use_cache)
+
+
+@mcp.tool()
+async def get_ai_report_tokens_list(use_cache: bool = True) -> List[Dict[str, Any]]:
+    """
+    Get the list of all tokens for AI reports.
+    Endpoint: /v2/ai-reports-tokens
+    
+    Args:
+        use_cache: Whether to use cached data if available
+    
+    Returns:
+        List of AI report token information
+    """
+    return await fetch_ai_report_tokens_list(use_cache=use_cache)
+
+
+@mcp.tool()
+async def get_token_data(symbol: str, use_cache: bool = True) -> Optional[Dict[str, Any]]:
+    """
+    Get detailed information for a specific token by symbol
+    Uses the coins endpoint and filters by symbol
+    
+    Args:
+        symbol: Token symbol (e.g., BTC, ETH)
+        use_cache: Whether to use cached data if available
+        
+    Returns:
+        Detailed token information if found
+    """
+    #return await get_coin_data(symbol, use_cache=use_cache)
+    return await get_token_data_via_tokens_endpoint(symbol)
+
+@mcp.tool()
+async def cache_all_lists() -> str:
+    """
+    Fetch and cache all available lists from Token Metrics API.
+    Saves them as CSV files in the 'lists' directory.
+    
+    Returns:
+        Status message
+    """
+    await cache_lists()
+    return "All lists cached successfully"
+
+
+@mcp.tool()
+async def invalidate_cache() -> str:
+    """
+    Invalidate and refresh all cached data from the API.
+    Forces a fresh fetch of all data regardless of cache age.
+    
+    Returns:
+        Status message
+    """
+    await helper_invalidate_cache()
+    return "Cache invalidated and refreshed successfully"
+
+
+@mcp.tool()
+def get_cache_status() -> Dict[str, Any]:
+    """
+    Get the status of all cache files
+    
+    Returns:
+        Dictionary with cache status information
+    """
+    cache_files = [
+        "coins", 
+        "categories", 
+        "exchanges", 
+        "blockchains", 
+        "technical_indicators", 
+        "ai_report_tokens"
+    ]
+    status = {}
+    
+    for cache_name in cache_files:
+        status[cache_name] = {
+            "valid": is_cache_valid(cache_name),
+            "exists": is_cache_valid(cache_name, max_age_hours=0)
+        }
+    
+    return status
+
+
+@mcp.tool()
+async def get_emas(
+    symbol: str, 
+    timeframe: str = "1D", 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 100,
+    ema_periods: List[int] = [10, 20, 50, 100, 200]
+) -> EmaResponse:
+    """
+    Get Exponential Moving Averages (EMAs) for a specified token and timeframe using vectorbt.
+    
+    Args:
+        symbol: Token symbol (e.g., "BTC", "ETH")
+        timeframe: Timeframe for data ("1D" for daily, "1H" for hourly)
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        ema_periods: List of EMA periods to calculate
+        
+    Returns:
+        EmaResponse object containing price data and EMAs
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        raise ValueError("TOKEN_METRICS_API_KEY not set in environment")
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    # Set default dates if not provided
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+    
+    # Get price data based on timeframe
+    if timeframe.upper() == "1D":
+        response = client.daily_ohlcv.get(
+            symbol=symbol,
+            startDate=start_date,
+            endDate=end_date
+        )
+    elif timeframe.upper() == "1H":
+        response = client.hourly_ohlcv.get(
+            symbol=symbol,
+            startDate=start_date,
+            endDate=end_date
+        )
+    else:
+        raise ValueError(f"Unsupported timeframe: {timeframe}. Use '1D' or '1H'.")
+    
+    # Check if data was retrieved successfully
+    if not response.get("data"):
+        raise ValueError(f"No data found for {symbol} from {start_date} to {end_date}")
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(response["data"])
+    
+    # Ensure datetime index
+    df["DATE"] = pd.to_datetime(df["DATE"])
+    df.set_index("DATE", inplace=True)
+    df.sort_index(inplace=True)
+    
+    # Calculate EMAs using vectorbt
+    close_series = df["CLOSE"]
+    ema_data = {}
+    
+    for period in ema_periods:
+        # Calculate EMA using vectorbt
+        ema = vbt.MA.run(close_series, period, short_name=f'EMA{period}', ewm=True)
+        ema_data[f"EMA{period}"] = ema.ma.to_numpy().tolist()
+    
+    # Create and return EmaResponse
+    return EmaResponse(
+        symbol=symbol,
+        timeframe=timeframe,
+        start_date=start_date,
+        end_date=end_date,
+        dates=df.index.strftime("%Y-%m-%d %H:%M:%S").tolist(),
+        close=df["CLOSE"].tolist(),
+        open=df["OPEN"].tolist(),
+        high=df["HIGH"].tolist(),
+        low=df["LOW"].tolist(),
+        volume=df["VOLUME"].tolist(),
+        emas=ema_data
+    )
+
+
+# Premium API endpoints (require API key)
+# These functions require access to the Token Metrics API with a valid API key
+
+@mcp.tool()
+async def get_tokens_info(symbol: str) -> Dict[str, Any]:
+    """
+    Get detailed information for specific tokens using premium API.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        
+    Returns:
+        Token information data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    result = client.tokens.get(symbol=symbol)
+    return result
+
+
+@mcp.tool()
+async def get_hourly_ohlcv_data(
+    symbol: str, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 7
+) -> Dict[str, Any]:
+    """
+    Get hourly Open-High-Low-Close-Volume data for specified tokens.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        
+    Returns:
+        Hourly OHLCV data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+
+
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.hourly_ohlcv.get(
+        symbol=symbol,
+        startDate=start_date,
+        endDate=end_date
+    )
+    return result
+
+
+@mcp.tool()
+async def get_daily_ohlcv_data(
+    symbol: str, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 30
+) -> Dict[str, Any]:
+    """
+    Get daily Open-High-Low-Close-Volume data for specified tokens.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        
+    Returns:
+        Daily OHLCV data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.daily_ohlcv.get(
+        symbol=symbol,
+        startDate=start_date,
+        endDate=end_date
+    )
+    return result
+
+
+@mcp.tool()
+async def get_trader_grades(
+    symbol: str, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 30
+) -> Dict[str, Any]:
+    """
+    Get trader grades (short-term trading recommendations) for specified tokens.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        
+    Returns:
+        Trader grades data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.trader_grades.get(
+        symbol=symbol,
+        startDate=start_date,
+        endDate=end_date
+    )
+    return result
+
+
+@mcp.tool()
+async def get_investor_grades(
+    symbol: str, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 30
+) -> Dict[str, Any]:
+    """
+    Get investor grades (long-term investment recommendations) for specified tokens.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        
+    Returns:
+        Investor grades data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.investor_grades.get(
+        symbol=symbol,
+        startDate=start_date,
+        endDate=end_date
+    )
+    return result
+
+
+@mcp.tool()
+async def get_market_metrics(
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 30
+) -> Dict[str, Any]:
+    """
+    Get overall market sentiment and metrics.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        
+    Returns:
+        Market metrics data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.market_metrics.get(
+        startDate=start_date,
+        endDate=end_date
+    )
+    return result
+
+
+@mcp.tool()
+async def get_trader_indices(
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 30
+) -> Dict[str, Any]:
+    """
+    Get AI-generated trading portfolios (indices).
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        
+    Returns:
+        Trader indices data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.trader_indices.get(
+        startDate=start_date,
+        endDate=end_date
+    )
+    return result
+
+
+@mcp.tool()
+async def ask_ai_agent(question: str) -> Dict[str, Any]:
+    """
+    Ask the Token Metrics AI chatbot a question.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        question: Question to ask the AI agent
+        
+    Returns:
+        AI response data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    result = client.ai_agent.ask(question)
+    return result
+
+
+@mcp.tool()
+async def get_ai_reports(symbol: str) -> Dict[str, Any]:
+    """
+    Get AI-generated reports for specified tokens.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        
+    Returns:
+        AI reports data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    result = client.ai_reports.get(symbol=symbol)
+    return result
+
+
+@mcp.tool()
+async def get_trading_signals(
+    symbol: str, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    days_back: int = 30,
+    signal: str = "1"  # 1 for bullish signals
+) -> Dict[str, Any]:
+    """
+    Get AI-generated trading signals for specified tokens.
+    Requires API key to be set in TOKEN_METRICS_API_KEY environment variable.
+    
+    Args:
+        symbol: Comma-separated token symbols (e.g., "BTC,ETH")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        signal: Signal type (1 for bullish, -1 for bearish)
+        
+    Returns:
+        Trading signals data
+    """
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        return {"error": "TOKEN_METRICS_API_KEY not set in environment"}
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        
+    result = client.trading_signals.get(
+        symbol=symbol,
+        startDate=start_date,
+        endDate=end_date,
+        signal=signal
+    )
+    return result
+
+
+@mcp.tool()
+async def ma_crossover_strategy(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    ma_type: str = "EMA",
+    ma_periods: Tuple[int, int] = (20, 50),
+    stop_loss_pct: Optional[float] = None,
+) -> MACrossoverResponse:
+    """
+    Calculate moving average crossover strategy for a given token.
+    
+    Args:
+        symbol: Token symbol (e.g., "BTC")
+        start_date: Start date in format YYYY-MM-DD
+        end_date: End date in format YYYY-MM-DD
+        ma_type: Moving average type ("SMA" or "EMA")
+        ma_periods: Tuple of short and long MA periods
+        stop_loss_pct: Optional trailing stop loss percentage
+        
+    Returns:
+        MACrossoverResponse with strategy results
+    """
+    
+    # Get daily OHLCV data
+    #print(f"Running strategy for {symbol} from {start_date} to {end_date}")
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        raise ValueError("TOKEN_METRICS_API_KEY not set in environment")
+    
+    client = TokenMetricsClient(api_key=api_key)
+    
+    # Set default dates if not provided
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+    
+    # Get the daily OHLCV data
+    response = client.daily_ohlcv.get(
+        symbol=symbol,
+        startDate=start_date,
+        endDate=end_date
+    )
+    
+    # Check if data was retrieved successfully
+    if not response.get("data"):
+        raise ValueError(f"No data found for {symbol} from {start_date} to {end_date}")
+    
+    data = response["data"]
+    
+    # --- Filter data to only include the primary token for the given symbol ---
+    # Get the expected token name for the symbol
+    token_info = await get_token_data(symbol, use_cache=True) 
+    
+    # Fallback to /v2/tokens endpoint if /v2/coins failed
+    if not token_info:
+        #print(f"get_token_data (using coins list) failed for {symbol}. Trying /v2/tokens endpoint...")
+        token_info = await get_token_data_via_tokens_endpoint(symbol)
+    
+    if not token_info or 'TOKEN_NAME' not in token_info:
+        raise ValueError(f"Could not retrieve token information for symbol {symbol} using either endpoint.")
+        
+    expected_token_name = token_info['TOKEN_NAME']
+    #print(f"Using TOKEN_NAME '{expected_token_name}' for filtering.")
+    
+    # Print sample of raw data for debugging
+    #print("\n--- DEBUG: Sample Raw API Data ---")
+    #print(f"Raw data items: {len(data)}")
+    #print(f"First 3 items: {data[:3]}")
+    #print(f"Last 3 items: {data[-3:]}")
+    #print("-----------------------------------\n")
+    
+    # Filter the data
+    filtered_data = [item for item in data if item.get('TOKEN_NAME') == expected_token_name]
+    
+    #if not filtered_data:
+        #print(f"WARNING: No data remaining after filtering for TOKEN_NAME '{expected_token_name}'. Check API response.")
+        # Optionally, fall back to using TOKEN_SYMBOL if name filtering fails?
+        # For now, proceed with empty data which will likely error out later but more cleanly.
+    
+    #print(f"\n--- FILTERED DATA ---")
+    #print(f"Original data items: {len(data)}")
+    #print(f"Filtered data items: {len(filtered_data)}")
+    #print(f"Removed {len(data) - len(filtered_data)} non-'{expected_token_name}' entries")
+    #print("----------------------\n")
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(filtered_data)
+    # Check if DataFrame is empty after filtering
+    if df.empty:
+         raise ValueError(f"No data available for the primary token '{expected_token_name}' ({symbol}) after filtering.")
+         
+    df['DATE'] = pd.to_datetime(df['DATE'])
+    df.set_index('DATE', inplace=True)
+    df.sort_index(inplace=True) # Ensure data is sorted chronologically
+    
+    # Convert OHLCV columns to numeric
+    #print("Converting OHLCV columns to numeric...")
+    for col in ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'VOLUME']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Debug post-conversion data quality
+    #print("\n--- DEBUG: Post-Conversion DataFrame Checks ---")
+    #print(f"NaN count in 'close' column after to_numeric: {df['CLOSE'].isna().sum()}")
+    
+    # Look for suspiciously low close prices (for BTC, anything < 40k in 2024-25 is suspicious)
+    low_price_rows = df[df['CLOSE'] < 40000]
+    if len(low_price_rows) > 0:
+        #print(f"Found {len(low_price_rows)} rows with close price < 40000")
+        #print("Rows with low close prices:")
+        #print(low_price_rows['CLOSE'].to_frame())
+        pass
+    
+    # Check for zero prices
+    zero_price_rows = df[df['CLOSE'] == 0]
+    if len(zero_price_rows) > 0:
+        #print(f"Found {len(zero_price_rows)} rows with close price == 0")
+        #print("Rows with zero prices:")
+        #print(zero_price_rows['CLOSE'].to_frame())
+        pass
+    
+    #print("---------------------------------------------\n")
+    
+    # Rename for clarity
+    df = df.rename(columns={
+        'OPEN': 'open',
+        'HIGH': 'high',
+        'LOW': 'low',
+        'CLOSE': 'close',
+        'VOLUME': 'volume'
+    })
+    
+    # Create a deep copy for analysis to avoid any modification by vectorbt
+    df_analysis = df[['close']].copy(deep=True)
+    
+    #print(f"Received {len(df)} data points for {symbol}")
+    #print(f"Date range: {df.index.min()} to {df.index.max()}")
+    #print(f"Created deep copy df_analysis with shape {df_analysis.shape}")
+    
+    # Calculate Moving Averages on the isolated dataframe
+    if ma_type == "SMA":
+        df_analysis[f'SMA{ma_periods[0]}'] = df_analysis['close'].rolling(window=ma_periods[0]).mean()
+        df_analysis[f'SMA{ma_periods[1]}'] = df_analysis['close'].rolling(window=ma_periods[1]).mean()
+    elif ma_type == "EMA":
+        df_analysis[f'EMA{ma_periods[0]}'] = df_analysis['close'].ewm(span=ma_periods[0], adjust=False).mean()
+        df_analysis[f'EMA{ma_periods[1]}'] = df_analysis['close'].ewm(span=ma_periods[1], adjust=False).mean()
+    
+    # Drop NaN values (due to MA calculation)
+    df_clean = df_analysis.dropna()
+    #print(f"After dropping NaN values: {len(df_clean)} data points")
+    
+    # Report MA value ranges
+    if ma_type == "SMA":
+        #print(f"MA value ranges: SMA{ma_periods[0]}={df_clean[f'SMA{ma_periods[0]}'].min():.2f}-{df_clean[f'SMA{ma_periods[0]}'].max():.2f}, SMA{ma_periods[1]}={df_clean[f'SMA{ma_periods[1]}'].min():.2f}-{df_clean[f'SMA{ma_periods[1]}'].max():.2f}")
+        pass
+    else:
+        #print(f"MA value ranges: EMA{ma_periods[0]}={df_clean[f'EMA{ma_periods[0]}'].min():.2f}-{df_clean[f'EMA{ma_periods[0]}'].max():.2f}, EMA{ma_periods[1]}={df_clean[f'EMA{ma_periods[1]}'].min():.2f}-{df_clean[f'EMA{ma_periods[1]}'].max():.2f}")
+        pass
+    
+    # Generate signals based on MA crossover
+    short_ma = f"{ma_type}{ma_periods[0]}"
+    long_ma = f"{ma_type}{ma_periods[1]}"
+    
+    # Create signal when short MA crosses above long MA (buy=1)
+    df_clean['signal'] = 0
+    df_clean.loc[df_clean[short_ma] > df_clean[long_ma], 'signal'] = 1
+    df_clean.loc[df_clean[short_ma] < df_clean[long_ma], 'signal'] = -1
+    
+    # Create entries and exits
+    df_clean['position'] = df_clean['signal']
+    # Get position changes only
+    df_clean['position_change'] = df_clean['position'].diff()
+    
+    # Generate vectorbt entries and exits signals
+    entries = df_clean['position_change'] == 2  # From -1 to 1 (crossing from sell to buy)
+    entries = entries | ((df_clean['position_change'] == 1) & (df_clean['position'].shift(1) == 0))  # From 0 to 1
+    
+    exits = df_clean['position_change'] == -2  # From 1 to -1 (crossing from buy to sell)
+    exits = exits | ((df_clean['position_change'] == -1) & (df_clean['position'].shift(1) == 0))  # From 0 to -1
+    
+    # Convert boolean entries to entries in case they're not
+    entries = entries.astype(bool)
+    exits = exits.astype(bool)
+    
+    # Ensure we don't have entries and exits on the same bar
+    prev_entries = entries.shift(1).fillna(False) # Assuming we start not entered (False)
+    entries = entries & ~prev_entries
+    
+    # Run the backtest
+    portfolio = vbt.Portfolio.from_signals(
+        df_clean['close'],
+        entries=entries,
+        exits=exits,
+        init_cash=10000,
+        fees=0.001,  # 0.1% trading fee
+    )
+    
+    # Apply trailing stop-loss if specified
+    if stop_loss_pct is not None and stop_loss_pct > 0:
+        #print(f"Applying {stop_loss_pct}% trailing stop-loss.")
+        
+        # Calculate the trailing stop price series
+        trail_points = stop_loss_pct / 100
+        portfolio = vbt.Portfolio.from_signals(
+            df_clean['close'],
+            entries=entries,
+            exits=exits,
+            init_cash=10000,
+            fees=0.001,  # 0.1% trading fee
+            sl_trail=trail_points,  # Trailing stop loss specified as fraction
+        )
+    
+    # Count signals
+    buy_signals = (df_clean['signal'] == 1).sum()
+    sell_signals = (df_clean['signal'] == -1).sum()
+    hold_signals = (df_clean['signal'] == 0).sum()
+    #print(f"Signal distribution: Buy={buy_signals}, Sell={sell_signals}, Hold={hold_signals}")
+    
+    # Extract trades
+    if hasattr(portfolio, 'trades'):
+        trades = portfolio.trades.records
+        #print("\n--- Portfolio Trades ---")
+        if len(trades) > 0:
+            trades_df = pd.DataFrame(trades)
+            
+            # Convert trade size to position size
+            if 'size' in trades_df.columns:
+                # Calculate average entry and exit prices
+                trades_df['entry_value'] = trades_df['size'] * trades_df['entry_price']
+                trades_df['exit_value'] = trades_df['size'] * trades_df['exit_price']
+                trades_df['avg_entry_price'] = trades_df['entry_value'] / trades_df['size']
+                trades_df['avg_exit_price'] = trades_df['exit_value'] / trades_df['size']
+            else:
+                trades_df['avg_entry_price'] = trades_df['entry_price']
+                trades_df['avg_exit_price'] = trades_df['exit_price']
+            
+            # Convert index values to timestamps
+            if 'entry_idx' in trades_df.columns and df_clean is not None:
+                trades_df['entry_time'] = df_clean.index[trades_df['entry_idx']]
+                trades_df['exit_time'] = df_clean.index[trades_df['exit_idx']]
+                
+            # Format the DataFrame for display  
+            display_cols = ['avg_entry_price', 'avg_exit_price', 'pnl', 'return']
+            if 'entry_time' in trades_df.columns:
+                display_cols = ['entry_time', 'exit_time'] + display_cols
+                
+            display_trades = trades_df[display_cols]
+            display_trades = display_trades.rename(columns={
+                'entry_time': 'Entry Timestamp',
+                'exit_time': 'Exit Timestamp',
+                'avg_entry_price': 'Avg Entry Price',
+                'avg_exit_price': 'Avg Exit Price',
+                'pnl': 'PnL',
+                'return': 'Return'
+            })
+            display_trades['Status'] = 'Closed'
+            
+            # Add a 'Status' column to indicate if the trade is open or closed
+            # But check first if needed columns exist in trades_df
+            if 'status' in trades_df.columns:
+                display_trades['Status'] = trades_df['status'].apply(lambda x: 'Open' if x == 0 else 'Closed')
+                
+            #print(display_trades)
+        else:
+            #print("No trades executed.")
+            pass
+        #print("----------------------\n")
+    
+    # Get portfolio stats
+    stats = portfolio.stats()
+    
+    # Show available stats keys for debugging
+    #print(f"Available stats keys: {list(stats.index)}")
+    
+    # Calculate return manually for verification
+    try:
+        total_return = (portfolio.final_value() - portfolio.init_cash) / portfolio.init_cash
+        #print(f"Manual Return Calc: (Final: {portfolio.final_value():.2f} - Init: {portfolio.init_cash}) / Init: {portfolio.init_cash} = {total_return:.4f}")
+    except Exception as e:
+        #print(f"Error calculating manual return: {e}")
+        total_return = 0.0
+    
+    # Get relevant metrics
+    total_return_pct = stats["Total Return [%]"] if "Total Return [%]" in stats else 0
+    sharpe_ratio = stats["Sharpe Ratio"] if "Sharpe Ratio" in stats else 0
+    max_drawdown = stats["Max Drawdown [%]"] if "Max Drawdown [%]" in stats else 0
+    win_rate = stats["Win Rate [%]"] if "Win Rate [%]" in stats else 0
+    
+    # Get trades count
+    trades_count = len(portfolio.trades.records) if hasattr(portfolio, 'trades') else 0
+    
+    # Prepare close prices and equity curve for plotting
+    updated_dates = df_clean.index.strftime('%Y-%m-%d %H:%M:%S').tolist()
+    updated_close = df_clean['close'].tolist()
+    signals = df_clean['signal'].tolist()
+    equity_curve = portfolio.value().tolist()
+    
+    # Create MA values for the response
+    ma_values = {
+        'short': {
+            'period': ma_periods[0],
+            'type': ma_type,
+            'values': df_clean[f'{ma_type}{ma_periods[0]}'].tolist()
+        },
+        'long': {
+            'period': ma_periods[1],
+            'type': ma_type,
+            'values': df_clean[f'{ma_type}{ma_periods[1]}'].tolist()
+        }
+    }
+    
+    return MACrossoverResponse(
+        symbol=symbol,
+        dates=updated_dates,
+        close_prices=updated_close,
+        signals=signals,
+        equity_curve=equity_curve,
+        ma_values=ma_values,
+        stats=StrategyStats(
+            total_return_pct=float(total_return_pct),
+            sharpe_ratio=float(sharpe_ratio),
+            max_drawdown_pct=float(max_drawdown),
+            win_rate_pct=float(win_rate),
+            trades_count=trades_count
+        )
+    )
+
+
+@mcp.tool()
+async def generate_ma_chart(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days_back: int = 180,
+    fast_ma: int = 20,
+    slow_ma: int = 50,
+    ma_type: str = "EMA"
+) -> ImageContent:
+    """
+    Generate a chart showing price, moving averages and signals for the specified token.
+    Returns the chart as an image.
+    
+    Args:
+        symbol: Token symbol (e.g., "BTC")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        fast_ma: Period for the fast moving average
+        slow_ma: Period for the slow moving average
+        ma_type: Type of moving average ("EMA" or "SMA")
+        
+    Returns:
+        ImageContent object containing the chart as base64-encoded image
+    """
+    # First, run the strategy to get the data
+    result = await ma_crossover_strategy(
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        ma_type=ma_type,
+        ma_periods=(fast_ma, slow_ma),
+        stop_loss_pct=10.0,  # 10% trailing stop loss
+    )
+    
+    # --- DEBUG: Print incoming data --- 
+    #print("\n--- DEBUG: Data received by generate_ma_chart ---")
+    #print(f"Symbol: {symbol}, MA: {ma_type}{fast_ma}/{slow_ma}")
+    #print(f"Number of data points: {len(result.dates)}")
+    #print(f"Dates (first 5): {result.dates[:5]}")
+    #print(f"Close Prices (first 5): {result.close_prices[:5]}")
+    #print(f"Signals (first 5): {result.signals[:5]}")
+    #print(f"Equity Curve (first 5): {result.equity_curve[:5]}")
+    #print("...")
+    #print(f"Dates (last 5): {result.dates[-5:]}")
+    #print(f"Close Prices (last 5): {result.close_prices[-5:]}")
+    #print(f"Signals (last 5): {result.signals[-5:]}")
+    #print(f"Equity Curve (last 5): {result.equity_curve[-5:]}")
+    #print("----------------------------------------------------\n")
+    
+    # Create a DataFrame from the result data for plotting
+    plot_data = {
+        'date': pd.to_datetime(result.dates),
+        'close': result.close_prices,
+        'signals': result.signals,
+        'equity': result.equity_curve,
+        'short_ma': result.ma_values['short']['values'],
+        'long_ma': result.ma_values['long']['values']
+    }
+    df_plot = pd.DataFrame(plot_data)
+    df_plot.set_index('date', inplace=True)
+    
+    # Create figure with 2 subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    
+    # --- Top Subplot (Price, MAs, Signals) --- 
+    ax1.plot(df_plot.index, df_plot['close'], label='Price', color='blue', linewidth=1) # Thinner price line
+    
+    # Plot the MAs directly from the DataFrame
+    short_ma_name = f"{ma_type}{fast_ma}"
+    long_ma_name = f"{ma_type}{slow_ma}"
+    ax1.plot(df_plot.index, df_plot['short_ma'], label=short_ma_name, color='orange', linewidth=1.5)
+    ax1.plot(df_plot.index, df_plot['long_ma'], label=long_ma_name, color='purple', linewidth=1.5)
+    
+    # Plot buy signals (where signal == 1)
+    buy_points = df_plot[df_plot['signals'] == 1]
+    if not buy_points.empty:
+        ax1.scatter(buy_points.index, buy_points['close'], color='green', marker='^', s=100, label='Buy Signal', zorder=5)
+    
+    # Plot sell signals (where signal == -1) -> Use 'close' price for y-coordinate
+    sell_points = df_plot[df_plot['signals'] == -1]
+    if not sell_points.empty:
+        ax1.scatter(sell_points.index, sell_points['close'], color='red', marker='v', s=100, label='Sell Signal', zorder=5)
+    
+    # Set labels and title for top subplot
+    ax1.set_title(f"{symbol} Price with {ma_type} Crossover Signals ({fast_ma}/{slow_ma})")
+    ax1.set_ylabel('Price ($)')
+    ax1.legend()
+    ax1.grid(True)
+    
+    # --- Bottom Subplot (Equity Curve) --- 
+    ax2.plot(df_plot.index, df_plot['equity'], color='green', label='Portfolio Value')
+    # Add initial capital line
+    ax2.axhline(y=10000, color='gray', linestyle='--', label='Initial Capital') 
+    
+    # Set labels for bottom subplot
+    ax2.set_title('Equity Curve')
+    ax2.set_xlabel('Date')
+    ax2.set_ylabel('Value ($)')
+    ax2.legend()
+    ax2.grid(True)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Instead of saving to file, save to bytes buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    
+    # Convert to base64
+    img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+    
+    # Close the plot to free memory
+    plt.close(fig)
+    
+    # Return as ImageContent
+    return ImageContent(
+        type="image",
+        data=img_str,
+        mimeType="image/png"
+    )
+
+
+@mcp.tool()
+async def generate_ma_chart_as_file(
+    symbol: str,
+    output_path: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days_back: int = 180,
+    fast_ma: int = 20,
+    slow_ma: int = 50,
+    ma_type: str = "EMA"
+) -> str:
+    """
+    Generate a chart showing price, moving averages and signals for the specified token.
+    Saves the chart as an image file at the specified path.
+    
+    Args:
+        symbol: Token symbol (e.g., "BTC")
+        output_path: File path to save the image (if None, uses default directory)
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        days_back: Number of days to look back if start_date not provided
+        fast_ma: Period for the fast moving average
+        slow_ma: Period for the slow moving average
+        ma_type: Type of moving average ("EMA" or "SMA")
+        
+    Returns:
+        Path where the image was saved
+    """
+    import os
+    from datetime import datetime
+    
+    # First, run the strategy to get the data
+    result = await ma_crossover_strategy(
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        ma_type=ma_type,
+        ma_periods=(fast_ma, slow_ma),
+        stop_loss_pct=10.0,  # 10% trailing stop loss
+    )
+    
+    # Create a DataFrame from the result data for plotting
+    plot_data = {
+        'date': pd.to_datetime(result.dates),
+        'close': result.close_prices,
+        'signals': result.signals,
+        'equity': result.equity_curve,
+        'short_ma': result.ma_values['short']['values'],
+        'long_ma': result.ma_values['long']['values']
+    }
+    df_plot = pd.DataFrame(plot_data)
+    df_plot.set_index('date', inplace=True)
+    
+    # Create figure with 2 subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    
+    # --- Top Subplot (Price, MAs, Signals) --- 
+    ax1.plot(df_plot.index, df_plot['close'], label='Price', color='blue', linewidth=1)
+    
+    # Plot the MAs directly from the DataFrame
+    short_ma_name = f"{ma_type}{fast_ma}"
+    long_ma_name = f"{ma_type}{slow_ma}"
+    ax1.plot(df_plot.index, df_plot['short_ma'], label=short_ma_name, color='orange', linewidth=1.5)
+    ax1.plot(df_plot.index, df_plot['long_ma'], label=long_ma_name, color='purple', linewidth=1.5)
+    
+    # Plot buy signals (where signal == 1)
+    buy_points = df_plot[df_plot['signals'] == 1]
+    if not buy_points.empty:
+        ax1.scatter(buy_points.index, buy_points['close'], color='green', marker='^', s=100, label='Buy Signal', zorder=5)
+    
+    # Plot sell signals (where signal == -1)
+    sell_points = df_plot[df_plot['signals'] == -1]
+    if not sell_points.empty:
+        ax1.scatter(sell_points.index, sell_points['close'], color='red', marker='v', s=100, label='Sell Signal', zorder=5)
+    
+    # Set labels and title for top subplot
+    ax1.set_title(f"{symbol} Price with {ma_type} Crossover Signals ({fast_ma}/{slow_ma})")
+    ax1.set_ylabel('Price ($)')
+    ax1.legend()
+    ax1.grid(True)
+    
+    # --- Bottom Subplot (Equity Curve) --- 
+    ax2.plot(df_plot.index, df_plot['equity'], color='green', label='Portfolio Value')
+    ax2.axhline(y=10000, color='gray', linestyle='--', label='Initial Capital')
+    
+    # Set labels for bottom subplot
+    ax2.set_title('Equity Curve')
+    ax2.set_xlabel('Date')
+    ax2.set_ylabel('Value ($)')
+    ax2.legend()
+    ax2.grid(True)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Determine the output path
+    if output_path is None:
+        # Get the module directory
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Create images directory if it doesn't exist
+        images_dir = os.path.join(module_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        
+        # Create filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{symbol}_{ma_type}{fast_ma}_{ma_type}{slow_ma}_{timestamp}.png"
+        output_path = os.path.join(images_dir, filename)
+    else:
+        # If custom path is provided, ensure its directory exists
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        if output_dir:  # Only if there's a directory component
+            os.makedirs(output_dir, exist_ok=True)
+    
+    # Save the figure to the file
+    plt.savefig(output_path, format='png', dpi=300)
+    
+    # Close the plot to free memory
+    plt.close(fig)
+    
+    return output_path
+
+
+async def test_api_functionality():
+    """
+    Test function to verify the Token Metrics API functionality.
+    Replicates calls from the examples to verify the API key is working.
+    """
+    print("\n" + "="*50)
+    print("TESTING TOKEN METRICS API FUNCTIONALITY")
+    print("="*50)
+    
+    # Check if API key is set
+    api_key = os.getenv("TOKEN_METRICS_API_KEY")
+    if not api_key:
+        print("⚠️ ERROR: TOKEN_METRICS_API_KEY not set in environment")
+        print("Please set your Token Metrics API key in .env file")
+        return
+    else:
+        print(f"✅ API Key found: {api_key[:5]}...{api_key[-5:]}")
+    
+    # Create client instance
+    client = TokenMetricsClient(api_key=api_key)
+    
+    try:
+        # 1. Test tokens endpoint (get info for BTC and ETH)
+        print("\n>> TESTING TOKENS INFO (BTC and ETH)")
+            # Get information for Bitcoin and Ethereum
+        tokens = client.tokens.get(symbol="BTC,ETH")
+        print(f"Found {len(tokens.get('data', []))} tokens")
+
+        # Convert to DataFrame for easier exploration
+        tokens_df = client.tokens.get_dataframe(symbol="BTC,ETH")
+        print(tokens_df.head())
+
+        print(f"✅ Successfully retrieved info for {tokens_df.shape[0]} tokens")
+        
+        # Show a sample of the data
+        if tokens_df.shape[0] > 0:
+            sample_token = tokens_df.iloc[0]
+            print(f"Sample token info for {sample_token.get('TOKEN_SYMBOL', 'Unknown')}:")
+            print(f"  - Name: {sample_token.get('TOKEN_NAME', 'Unknown')}")
+            print(f"  - ID: {sample_token.get('TOKEN_ID', 'Unknown')}")
+        
+        # 2. Test daily OHLCV endpoint
+        print("\n>> TESTING DAILY OHLCV (BTC for last 30 days)")
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=250)).strftime("%Y-%m-%d")
+
+        # Get OHLCV data - the SDK will automatically handle the 29-day limit and show a progress bar
+        ohlcv_df = client.hourly_ohlcv.get_dataframe(
+            symbol="BTC", 
+            startDate=start_date,
+            endDate=end_date
+        )
+        print(ohlcv_df.head())
+        ohlcv_result = await get_daily_ohlcv_data("BTC", start_date=start_date, end_date=end_date)
+        print(ohlcv_result)
+        ohlcv_count = len(ohlcv_result.get("data", []))
+        print(f"✅ Successfully retrieved {ohlcv_count} OHLCV data points")
+        
+        # Show a sample of the OHLCV data
+        if ohlcv_count > 0:
+            sample_ohlcv = ohlcv_result.get("data", [])[0]
+            print(f"Sample OHLCV data for {sample_ohlcv.get('TOKEN_SYMBOL', 'Unknown')}:")
+            print(f"  - Date: {sample_ohlcv.get('DATE', 'Unknown')}")
+            print(f"  - Open: {sample_ohlcv.get('OPEN', 'Unknown')}")
+            print(f"  - High: {sample_ohlcv.get('HIGH', 'Unknown')}")
+            print(f"  - Low: {sample_ohlcv.get('LOW', 'Unknown')}")
+            print(f"  - Close: {sample_ohlcv.get('CLOSE', 'Unknown')}")
+            print(f"  - Volume: {sample_ohlcv.get('VOLUME', 'Unknown')}")
+        
+        # 3. Test trading signals
+        print("\n>> TESTING TRADING SIGNALS (BTC for last 30 days)")
+        signals_result = await get_trading_signals("BTC", start_date=start_date, end_date=end_date)
+        signals_count = len(signals_result.get("data", []))
+        print(f"✅ Successfully retrieved {signals_count} trading signals")
+        
+        # Show a sample of the trading signals
+        if signals_count > 0:
+            sample_signal = signals_result.get("data", [])[0]
+            print(f"Sample trading signal for {sample_signal.get('TOKEN_SYMBOL', 'Unknown')}:")
+            print(f"  - Date: {sample_signal.get('DATE', 'Unknown')}")
+            print(f"  - Signal: {sample_signal.get('SIGNAL', 'Unknown')}")
+            print(f"  - Source: {sample_signal.get('SOURCE', 'Unknown')}")
+        
+        print("\n✅ API TEST COMPLETE: All endpoints working correctly")
+        
+    except Exception as e:
+        print(f"\n❌ ERROR: Failed to test API: {e}")
+        
+    print("="*50)
+
+
+def main():
+    """Main function to run when the server starts"""
+    print("Starting Token Metrics MCP...")
+    
+    # Test the API functionality
+   # asyncio.run(test_api_functionality())
+    mcp.run()
+
+    print("Token Metrics MCP is ready!")
+
+
+if __name__ == "__main__":
+    main()

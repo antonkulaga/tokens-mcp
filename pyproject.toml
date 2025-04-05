@@ -1,9 +1,9 @@
 [project]
 name = "tokens-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for token-metrics"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [
     {name = "Anton Kulaga", email = "antonkulaga@gmail.com"},
     {name = "Livia Zaharia", email = "liviazaharia2020@gmail.com"}
@@ -18,11 +18,33 @@ dependencies = [
     "pycomfort>=0.0.18",
     "tmai-api>=0.4.0",
     "pydantic>=2.11.2",
-    "tmai-api>=0.4.0",
     "vectorbt>=0.27.2",
+    "typer>=0.9.0",
+    "pytest>=8.3.5",
 ]
 
 [project.optional-dependencies]
 dev = [
     "jupyterlab>=4.3.6",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tokens_mcp"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+asyncio_mode = "auto"

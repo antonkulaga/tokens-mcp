@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import json
 from datetime import datetime, timedelta
 import numpy as np
+from pathlib import Path
+from eliot import log_call, log_message, log_error, log_exception, log_warning, log_info
 
 # Define the MCP API endpoint
 MCP_ENDPOINT = "http://localhost:8000/api/tools/ma_crossover_strategy"
@@ -120,7 +122,17 @@ def plot_strategy_results(result):
     
     # Adjust layout and show plot
     plt.tight_layout()
-    plt.savefig(f"{result['symbol']}_{result['ma_type']}_{result['fast_ma']}_{result['slow_ma']}_strategy.png")
+    
+    # Create images directory if it doesn't exist
+    images_dir = Path(__file__).parents[1] / "images"
+    images_dir.mkdir(exist_ok=True)
+    
+    # Save the figure to the file
+    filename = f"{result['symbol']}_{result['ma_type']}_{result['fast_ma']}_{result['slow_ma']}_strategy.png"
+    output_path = images_dir / filename
+    plt.savefig(output_path)
+    print(f"Strategy plot saved to: {output_path}")
+    
     plt.show()
 
 def main():
@@ -138,9 +150,13 @@ def main():
         plot_strategy_results(result)
         
         # Save results to file
-        with open(f"BTC_strategy_results.json", "w") as f:
+        images_dir = Path(__file__).parents[1] / "images"
+        images_dir.mkdir(exist_ok=True)
+        
+        results_file = images_dir / f"{result['symbol']}_strategy_results.json"
+        with open(results_file, "w") as f:
             json.dump(result, f, indent=2)
-            print(f"Results saved to BTC_strategy_results.json")
+            print(f"Results saved to: {results_file}")
     
     print("\nTesting strategy with different parameters...")
     

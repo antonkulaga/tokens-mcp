@@ -2,7 +2,7 @@ import asyncio
 import os
 import json
 from dotenv import load_dotenv
-from helpers import fetch_from_api
+from tokens_mcp.helpers import fetch_from_api
 
 async def test_pagination_limit():
     """

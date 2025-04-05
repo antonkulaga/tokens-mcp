@@ -1,7 +1,7 @@
 import asyncio
 import os
 from dotenv import load_dotenv
-from helpers import fetch_tokens_list
+from tokens_mcp.helpers import fetch_tokens_list
 
 async def find_popular_tokens():
     """

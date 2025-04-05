@@ -1,65 +1,72 @@
-# tokens-mcp
+# Tokens MCP
 
-This project is an MCP (Model Control Protocol) server for token-metrics. It provides functionality for managing and analyzing token metrics through a standardized protocol interface.
+MCP server for Token Metrics API.
 
-## Installation
+## Project Structure
 
-**Install uv** - Installing python uv package manager
+The project is organized using a standard Python package structure:
 
-First, install `uv`:
+```
+tokens-mcp/
+├── src/                      # Source code directory
+│   └── tokens_mcp/           # Main package
+│       ├── __init__.py       # Package initialization
+│       ├── main.py           # Entry point
+│       ├── server.py         # MCP server implementation
+│       ├── models.py         # Pydantic models
+│       ├── helpers.py        # Helper functions
+│       └── chart_utils.py    # Chart utilities
+├── tests/                    # Test directory
+│   ├── test_token_symbols.py # Token symbol tests
+│   ├── test_pagination.py    # Pagination tests
+│   └── ...                   # Other tests
+├── launch_server.py          # Server launcher script
+├── run_tests.py              # Test runner script
+├── pyproject.toml            # Project configuration
+└── README.md                 # This file
+```
+
+## Getting Started
+
+### Installation
+
+1. Clone the repository
+2. Install dependencies:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+pip install -e .
 ```
 
-Then install the project:
+### Configuration
+
+Copy `.env.example` to `.env` and configure your API keys:
 
 ```bash
-uv sync
+cp .env.example .env
+# Edit .env with your configuration
 ```
 
-Most of the modern IDEs support uv out of the box, however in terminal you might want to activate virtual environment explcietly:
-```
-# Create and activate a virtual environment
-uv venv
-source .venv/bin/activate  # On Linux/macOS
-```
+### Running the Server
 
-
-**Install Node.js** - Using nvm
-   ```bash
-   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash
-   sudo apt purge nodejs # in case you have outdated nodejs
-   nvm install node
-   npm install -g which cross-spawn
-   ```
-The reason why we need nodejs is because https://github.com/modelcontextprotocol/python-sdk library uses is under the hood for no goo reason.
-python-sdk is a trash-quality library but because it is written by Anthropic everybody is using it and we also have to.
-
-# Usage
-
-
-## Running MCP server
-
-Inside uv environment:
-
-start the server
 ```bash
-mcp run server.py
+./launch_server.py
 ```
 
-start inspection
+You can inspect the server by running
 ```bash
-mcp dev server.py
+uv run mcp dev
 ```
 
-Open http://127.0.0.1:6274 to inspect MCP server
+### Running Tests
 
-Troubleshooting
-===============
-
-In some cases it complains about which and cross-spawn, for this use-case
+```bash
+pytest -v tests/
 ```
-npx clear-npx-cache
-npm install cross-spawn which --save-dev
+
+## Development
+
+To set up a development environment:
+
+```bash
+pip install -e ".[dev]"
 ```
