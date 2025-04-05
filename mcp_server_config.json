@@ -2,7 +2,7 @@
   "mcpServers": {
     "TmaiAPI": {
       "command": "uv",
-      "args": ["--directory", "/data/sources/tokens-mcp", "run", "mcp", "run", "server.py"],
+      "args": ["--directory", "/data/sources/tokens-mcp", "run", "mcp", "run", "run.py"],
       "env": {
         "TOKEN_METRICS_API_KEY": "tm-?????"
       }

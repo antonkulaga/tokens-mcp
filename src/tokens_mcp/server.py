@@ -1191,11 +1191,11 @@ async def generate_ma_chart_as_file(
         # Determine the output path
         with start_action(action_type="chart_creation", phase="file_saving") as save_action:
             if output_path is None:
-                # Get the module directory using pathlib
-                module_dir = Path(__file__).parent.absolute()
+                # Navigate to project root (assuming we're in src/tokens_mcp)
+                project_root = Path(__file__).parent.parent.parent.absolute() #in the future we will use the config file get image path
                 
-                # Create images directory if it doesn't exist
-                images_dir = module_dir / "images"
+                # Create images directory in project root if it doesn't exist
+                images_dir = project_root / "images"
                 images_dir.mkdir(exist_ok=True, parents=True)
                 save_action.log(message_type="directory_creation", message=f"Created images directory at {images_dir}")
                 

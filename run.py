@@ -15,7 +15,10 @@ def main():
     log_json = logs_dir / f"server_{timestamp}.json"
     log_file = logs_dir / f"server_{timestamp}.log"
     
-    to_nice_file(log_json, log_file)
+    # there are some issues how mcp servers deal with log files. So far it does not output properly
+    # note: so far you have to run the server with `uv run mcp run run.py`
+    
+    to_nice_file(log_json, log_file) 
     with start_action(action_type="main") as action:
         action.log(message_type="server_start", message="Starting MCP server...")
         mcp.run()
